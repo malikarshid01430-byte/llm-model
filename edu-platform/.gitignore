@@ -1,0 +1,17 @@
+# Python
+*.pyc
+__pycache__/
+.venv/
+
+# Node
+node_modules/
+.next/
+
+# Docker
+*.log
+*.env
+**/vector_store/
+
+# Editors
+.vscode/
+.idea/

@@ -1,0 +1,18 @@
+{
+  "vocab": {
+    "<unk>": 0,
+    "<pad>": 1,
+    "</s>": 2
+  },
+  "inverse_vocab": {
+    "0": "<unk>",
+    "1": "<pad>",
+    "2": "</s>"
+  },
+  "special_tokens": [
+    "<unk>",
+    "<pad>",
+    "</s>"
+  ],
+  "vocab_size": 2000
+}

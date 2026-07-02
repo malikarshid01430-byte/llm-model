@@ -1,0 +1,12 @@
+torch
+transformers
+sentence-transformers
+faiss-cpu
+chromadb
+openai
+langchain
+llama-index
+fastapi
+uvicorn[standard]
+pydantic
+python-dotenv
