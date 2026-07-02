@@ -1,9 +1,28 @@
 from contextlib import asynccontextmanager
 
-from app.api.routers import (admin, agents, ai, analytics, auth, chat, courses,
-                             files, health, mcp, memory, metrics, monitoring,
-                             notifications, payments, security, student,
-                             teacher, users, vision, voice)
+from app.api.routers import (
+    admin,
+    agents,
+    ai,
+    analytics,
+    auth,
+    chat,
+    courses,
+    files,
+    health,
+    mcp,
+    memory,
+    metrics,
+    monitoring,
+    notifications,
+    payments,
+    security,
+    student,
+    teacher,
+    users,
+    vision,
+    voice,
+)
 from app.core.config import settings, validate_settings
 from app.db.session import init_db
 from fastapi import FastAPI

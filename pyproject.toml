@@ -28,5 +28,12 @@ dependencies = [
   "PyMuPDF>=1.24.0"
 ]
 
+[tool.black]
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+
 [tool.pytest.ini_options]
-testpaths = ["tests", "tokenizer/tests", "training/tests", "embeddings/tests", "datasets/tests"]
+testpaths = ["tests", "tokenizer/tests", "training/tests", "embeddings/tests", "datasets/tests", "inference/tests", "rag/tests"]
+import_mode = "importlib"

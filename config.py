@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -58,12 +58,8 @@ class InferenceConfig:
     top_k: int = 50
     top_p: float = 0.95
     repetition_penalty: float = 1.1
-    stop_tokens: list[int] = None
+    stop_tokens: list[int] = field(default_factory=list)
     max_context_len: int | None = None
-    
-    def __post_init__(self):
-        if self.stop_tokens is None:
-            self.stop_tokens = []
 
 
 @dataclass

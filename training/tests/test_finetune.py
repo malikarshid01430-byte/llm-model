@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 import torch
 from torch import nn
-from torch.utils.data import DataLoader, Dataset
 
 from training.finetune import (
     DatasetValidator,
@@ -16,8 +15,8 @@ from training.finetune import (
     LoRALayer,
     QLoRAConfig,
     SupervisedFineTuner,
-    apply_lora_to_model,
     apply_lora_to_linear,
+    apply_lora_to_model,
     merge_lora_weights,
 )
 
@@ -32,7 +31,9 @@ class SimpleModel(nn.Module):
         self.linear2 = nn.Linear(d_model, d_model)
         self.linear3 = nn.Linear(d_model, vocab_size)
 
-    def forward(self, input_ids: torch.Tensor, labels: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(
+        self, input_ids: torch.Tensor, labels: torch.Tensor | None = None
+    ) -> torch.Tensor:
         x = self.embedding(input_ids)
         x = torch.relu(self.linear1(x))
         x = torch.relu(self.linear2(x))
@@ -50,7 +51,9 @@ class MockTokenizer:
     def __call__(self, text: str, **kwargs) -> dict[str, torch.Tensor]:
         """Tokenize text."""
         # Simple tokenization: convert chars to numbers
-        tokens = [ord(c) % self.vocab_size for c in text[: kwargs.get("max_length", 512)]]
+        tokens = [
+            ord(c) % self.vocab_size for c in text[: kwargs.get("max_length", 512)]
+        ]
         input_ids = torch.tensor(tokens)
         attention_mask = torch.ones_like(input_ids)
 
@@ -121,7 +124,9 @@ class TestLoRAApplication:
         lora_model = apply_lora_to_model(model, config)
 
         # Count trainable parameters
-        trainable_params = sum(p.numel() for p in lora_model.parameters() if p.requires_grad)
+        trainable_params = sum(
+            p.numel() for p in lora_model.parameters() if p.requires_grad
+        )
         total_params = sum(p.numel() for p in lora_model.parameters())
 
         # LoRA should add trainable parameters
@@ -149,7 +154,10 @@ class TestInstructionDataset:
         """Test instruction dataset creation."""
         tokenizer = MockTokenizer(vocab_size=100)
         examples = [
-            {"instruction": "What is Python?", "response": "Python is a programming language."},
+            {
+                "instruction": "What is Python?",
+                "response": "Python is a programming language.",
+            },
             {"instruction": "What is ML?", "response": "ML is machine learning."},
         ]
 
@@ -224,7 +232,10 @@ class TestDatasetValidator:
         """Test validating entire dataset."""
         validator = DatasetValidator()
         examples = [
-            {"instruction": "What is Python?", "response": "Python is a programming language."},
+            {
+                "instruction": "What is Python?",
+                "response": "Python is a programming language.",
+            },
             {"instruction": "What is ML?", "response": "ML is machine learning."},
             {"instruction": "Test", "response": "Short"},  # Too short
         ]
@@ -252,7 +263,10 @@ class TestEvaluator:
 
         # Create dummy dataset
         examples = [
-            {"input_ids": torch.randint(0, 100, (32,)), "labels": torch.randint(0, 100, (32,))}
+            {
+                "input_ids": torch.randint(0, 100, (32,)),
+                "labels": torch.randint(0, 100, (32,)),
+            }
             for _ in range(4)
         ]
 
@@ -269,7 +283,10 @@ class TestEvaluator:
 
         # Create dummy dataset
         examples = [
-            {"input_ids": torch.randint(0, 100, (32,)), "labels": torch.randint(0, 100, (32,))}
+            {
+                "input_ids": torch.randint(0, 100, (32,)),
+                "labels": torch.randint(0, 100, (32,)),
+            }
             for _ in range(4)
         ]
 
@@ -294,10 +311,7 @@ class TestSupervisedFineTuner:
         )
 
         tokenizer = MockTokenizer(vocab_size=100)
-        examples = [
-            {"instruction": "Test", "response": "Response"}
-            for _ in range(4)
-        ]
+        examples = [{"instruction": "Test", "response": "Response"} for _ in range(4)]
 
         dataset = InstructionDataset(examples, tokenizer, max_length=32)
 
@@ -388,7 +402,10 @@ class TestIntegration:
         # Create dataset
         tokenizer = MockTokenizer(vocab_size=100)
         examples = [
-            {"instruction": "What is Python?", "response": "Python is a programming language."},
+            {
+                "instruction": "What is Python?",
+                "response": "Python is a programming language.",
+            },
             {"instruction": "What is ML?", "response": "Machine learning is AI."},
         ]
 
@@ -405,7 +422,7 @@ class TestIntegration:
         # Train for one epoch
         try:
             tuner.train()
-        except Exception as e:
+        except Exception:
             # May fail due to small dataset, that's ok for test
             pass
 

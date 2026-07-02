@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
 import torch
-from torch import nn
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
 
 
 @dataclass
 class BatchConfig:
     """Configuration for dynamic batching."""
+
     max_tokens: int = 1024
     max_batch_size: int = 32
     pad_value: int = 0
@@ -35,28 +35,31 @@ class DynamicBatchSampler:
     def _build_batches(self) -> None:
         """Group samples into batches based on length."""
         # Get all samples with their lengths
-        samples = []
-        for idx in range(len(self.dataset)):
+        samples: list[tuple[int, int]] = []
+        for idx in range(len(self.dataset)):  # type: ignore[arg-type]
             sample = self.dataset[idx]
             if isinstance(sample, dict):
-                length = sample.get("input_ids", sample.get("targets", torch.tensor([]))).size(0)
+                t = sample.get("input_ids", sample.get("targets", torch.tensor([])))
+                length: int = t.size(0)
             else:
                 length = sample.size(0)
             samples.append((idx, length))
-        
+
         # Sort by length if configured
         if self.config.sort_by_length:
             samples.sort(key=lambda x: x[1])
-        
+
         # Group into batches
-        self.batches = []
-        current_batch = []
+        self.batches: list[list[int]] = []
+        current_batch: list[int] = []
         current_tokens = 0
-        
+
         for idx, length in samples:
             # Check if adding this sample would exceed limits
-            if (len(current_batch) >= self.config.max_batch_size or
-                current_tokens + length > self.config.max_tokens):
+            if (
+                len(current_batch) >= self.config.max_batch_size
+                or current_tokens + length > self.config.max_tokens
+            ):
                 if current_batch:
                     self.batches.append(current_batch)
                 current_batch = [idx]
@@ -64,11 +67,11 @@ class DynamicBatchSampler:
             else:
                 current_batch.append(idx)
                 current_tokens += length
-        
+
         if current_batch:
             self.batches.append(current_batch)
 
-    def __iter__(self) -> list[int]:
+    def __iter__(self) -> Iterator[list[int]]:
         """Iterate over batches."""
         return iter(self.batches)
 
@@ -119,43 +122,45 @@ class SequencePacker:
     def pack(self, sequences: list[torch.Tensor]) -> dict[str, torch.Tensor]:
         """
         Pack a list of sequences into a batch with padding.
-        
+
         Args:
             sequences: List of token tensors
-            
+
         Returns:
             Dictionary with input_ids, targets, and attention_mask
         """
         if not sequences:
             raise ValueError("Cannot pack empty sequence list")
-        
+
         # Find max length in batch (capped at max_seq_len)
         max_len = min(max(seq.size(0) for seq in sequences), self.max_seq_len)
-        
+
         # Pad all sequences to max_len
         padded = []
         for seq in sequences:
             if seq.size(0) > max_len:
                 seq = seq[:max_len]
             elif seq.size(0) < max_len:
-                padding = torch.full((max_len - seq.size(0),), self.pad_value, dtype=seq.dtype)
+                padding = torch.full(
+                    (max_len - seq.size(0),), self.pad_value, dtype=seq.dtype
+                )
                 seq = torch.cat([seq, padding])
             padded.append(seq)
-        
+
         # Stack into batch
         input_ids = torch.stack(padded)
-        
+
         # Create targets (shifted by 1)
         targets = input_ids.clone()
         targets[:, :-1] = input_ids[:, 1:]
         targets[:, -1] = self.pad_value
-        
+
         # Create attention mask (1 for real tokens, 0 for padding)
         attention_mask = torch.ones_like(input_ids, dtype=torch.bool)
         for i, seq in enumerate(sequences):
             if seq.size(0) < max_len:
-                attention_mask[i, seq.size(0):] = False
-        
+                attention_mask[i, seq.size(0) :] = False
+
         return {
             "input_ids": input_ids,
             "targets": targets,
@@ -174,10 +179,10 @@ class DataCollator:
     def collate(self, batch: list[torch.Tensor]) -> dict[str, torch.Tensor]:
         """
         Collate a batch of sequences.
-        
+
         Args:
             batch: List of token tensors
-            
+
         Returns:
             Dictionary with input_ids, targets, and attention_mask
         """
@@ -207,26 +212,29 @@ class CurriculumSampler:
 
     def _build_batches(self) -> None:
         """Build batches with curriculum learning."""
-        samples = []
-        for idx in range(len(self.dataset)):
+        samples: list[tuple[int, int]] = []
+        for idx in range(len(self.dataset)):  # type: ignore[arg-type]
             sample = self.dataset[idx]
             if isinstance(sample, dict):
-                length = sample.get("input_ids", sample.get("targets", torch.tensor([]))).size(0)
+                t = sample.get("input_ids", sample.get("targets", torch.tensor([])))
+                length: int = t.size(0)
             else:
                 length = sample.size(0)
             samples.append((idx, length))
-        
+
         # Sort by length
         samples.sort(key=lambda x: x[1])
-        
+
         # Group into batches
-        self.all_batches = []
-        current_batch = []
+        self.all_batches: list[list[int]] = []
+        current_batch: list[int] = []
         current_tokens = 0
-        
+
         for idx, length in samples:
-            if (len(current_batch) >= self.config.max_batch_size or
-                current_tokens + length > self.config.max_tokens):
+            if (
+                len(current_batch) >= self.config.max_batch_size
+                or current_tokens + length > self.config.max_tokens
+            ):
                 if current_batch:
                     self.all_batches.append(current_batch)
                 current_batch = [idx]
@@ -234,33 +242,36 @@ class CurriculumSampler:
             else:
                 current_batch.append(idx)
                 current_tokens += length
-        
+
         if current_batch:
             self.all_batches.append(current_batch)
-        
+
         self.batches = self.all_batches.copy()
 
     def set_epoch(self, epoch: int) -> None:
         """Update curriculum based on epoch."""
         self.current_epoch = epoch
-        
+
         # Gradually increase max sequence length
         progress = min(epoch / self.curriculum_epochs, 1.0)
         max_seq_len = int(self.config.max_tokens * progress)
         max_seq_len = max(max_seq_len, 32)  # Minimum sequence length
-        
+
         # Filter batches that fit within current max_seq_len
         self.batches = []
         for batch in self.all_batches:
             total_length = sum(
-                self.dataset[idx].size(0) if not isinstance(self.dataset[idx], dict)
-                else self.dataset[idx].get("input_ids", torch.tensor([])).size(0)
+                (
+                    self.dataset[idx].size(0)
+                    if not isinstance(self.dataset[idx], dict)
+                    else self.dataset[idx].get("input_ids", torch.tensor([])).size(0)
+                )
                 for idx in batch
             )
             if total_length <= max_seq_len * len(batch):
                 self.batches.append(batch)
 
-    def __iter__(self) -> list[int]:
+    def __iter__(self) -> Iterator[list[int]]:
         """Iterate over batches."""
         return iter(self.batches)
 

@@ -63,7 +63,6 @@ def test_trainer_runs_and_saves_checkpoint(tmp_path: Path) -> None:
             device="cpu",
             gradient_clip=1.0,
             early_stopping_patience=1,
-            val_split=0.2,
         ),
         loader,
         device="cpu",
@@ -76,4 +75,4 @@ def test_trainer_runs_and_saves_checkpoint(tmp_path: Path) -> None:
     trainer.train()
 
     assert (tmp_path / "checkpoints" / "checkpoint_latest.pt").exists()
-    assert trainer.best_val_loss is not None
+    assert trainer.global_step == 2

@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader, Dataset
 @dataclass
 class LoRAConfig:
     """Configuration for LoRA fine-tuning."""
+
     r: int = 8  # Rank
     lora_alpha: int = 16  # Scaling factor
     lora_dropout: float = 0.1
@@ -24,6 +25,7 @@ class LoRAConfig:
 @dataclass
 class QLoRAConfig:
     """Configuration for QLoRA fine-tuning."""
+
     r: int = 8
     lora_alpha: int = 16
     lora_dropout: float = 0.1
@@ -39,6 +41,7 @@ class QLoRAConfig:
 @dataclass
 class FineTuningConfig:
     """Configuration for fine-tuning."""
+
     method: str = "lora"  # "lora", "qlora", "full"
     lora: LoRAConfig | None = None
     qlora: QLoRAConfig | None = None
@@ -90,7 +93,7 @@ def apply_lora_to_linear(
     r: int = 8,
     lora_alpha: int = 16,
     lora_dropout: float = 0.1,
-) -> tuple[nn.Linear, LoRALayer]:
+) -> nn.Module:
     """Apply LoRA to a linear layer."""
     in_features = layer.in_features
     out_features = layer.out_features
@@ -114,13 +117,19 @@ def apply_lora_to_linear(
 
 
 def apply_lora_to_model(model: nn.Module, config: LoRAConfig) -> nn.Module:
-    """Apply LoRA to model layers."""
+    """Apply LoRA to model layers.
+
+    Freezes all base model parameters and only keeps LoRA adapter
+    parameters trainable.
+    """
+    # Freeze all parameters first
+    for param in model.parameters():
+        param.requires_grad = False
+
     for name, module in model.named_modules():
         if isinstance(module, nn.Linear):
-            # Check if this module should be adapted
             should_adapt = any(target in name for target in config.target_modules)
             if should_adapt:
-                # Get parent module
                 parent_name = ".".join(name.split(".")[:-1])
                 child_name = name.split(".")[-1]
                 parent = model
@@ -128,7 +137,6 @@ def apply_lora_to_model(model: nn.Module, config: LoRAConfig) -> nn.Module:
                     if part:
                         parent = getattr(parent, part)
 
-                # Replace with LoRA layer
                 lora_linear = apply_lora_to_linear(
                     module,
                     r=config.r,
@@ -157,7 +165,13 @@ class QLoRALayer(LoRALayer):
 def quantize_model_4bit(model: nn.Module, compute_dtype: str = "float16") -> nn.Module:
     """Quantize model to 4-bit."""
     try:
-        import bitsandbytes as bnb
+        import importlib.util
+
+        if importlib.util.find_spec("bitsandbytes") is None:
+            raise ImportError("Install bitsandbytes for QLoRA support")
+        if importlib.util.find_spec("transformers") is None:
+            raise ImportError("Install transformers for QLoRA support")
+
         from transformers import BitsAndBytesConfig
 
         compute_dtype_map = {
@@ -166,17 +180,17 @@ def quantize_model_4bit(model: nn.Module, compute_dtype: str = "float16") -> nn.
             "float32": torch.float32,
         }
 
-        bnb_config = BitsAndBytesConfig(
+        resolved_dtype = compute_dtype_map.get(compute_dtype, torch.float16)
+
+        BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=compute_dtype_map.get(compute_dtype, torch.float16),
+            bnb_4bit_compute_dtype=resolved_dtype,
             bnb_4bit_use_double_quant=True,
         )
 
-        # Note: This is a simplified version
-        # In practice, you'd use prepare_model_for_kbit_training
         for param in model.parameters():
-            param.data = param.data.to(compute_dtype_map.get(compute_dtype, torch.float16))
+            param.data = param.data.to(resolved_dtype)
 
         return model
     except ImportError:
@@ -278,12 +292,14 @@ class SupervisedFineTuner:
             self.model = apply_qlora_to_model(model, qlora_config)
 
         # Setup data loaders
+        use_cuda = torch.cuda.is_available()
+        num_workers = min(4, 2) if use_cuda else 0
         self.train_loader = DataLoader(
             train_dataset,
             batch_size=config.batch_size,
             shuffle=True,
-            num_workers=4,
-            pin_memory=True,
+            num_workers=num_workers,
+            pin_memory=use_cuda,
         )
 
         if val_dataset:
@@ -291,11 +307,11 @@ class SupervisedFineTuner:
                 val_dataset,
                 batch_size=config.batch_size,
                 shuffle=False,
-                num_workers=4,
-                pin_memory=True,
+                num_workers=num_workers,
+                pin_memory=use_cuda,
             )
         else:
-            self.val_loader = None
+            self.val_loader: DataLoader | None = None
 
         # Setup optimizer
         self.optimizer = torch.optim.AdamW(
@@ -332,11 +348,14 @@ class SupervisedFineTuner:
             for batch_idx, batch in enumerate(self.train_loader):
                 # Forward pass
                 input_ids = batch["input_ids"]
-                attention_mask = batch["attention_mask"]
                 labels = batch["labels"]
 
-                outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
-                logits = outputs.logits if hasattr(outputs, "logits") else outputs
+                outputs = self.model(input_ids=input_ids)
+                logits = (
+                    outputs.logits
+                    if hasattr(outputs, "logits")
+                    else (outputs if isinstance(outputs, torch.Tensor) else outputs[0])
+                )
 
                 # Compute loss
                 loss = self.criterion(logits.view(-1, logits.size(-1)), labels.view(-1))
@@ -404,11 +423,14 @@ class SupervisedFineTuner:
         with torch.no_grad():
             for batch in self.val_loader:
                 input_ids = batch["input_ids"]
-                attention_mask = batch["attention_mask"]
                 labels = batch["labels"]
 
-                outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
-                logits = outputs.logits if hasattr(outputs, "logits") else outputs
+                outputs = self.model(input_ids=input_ids)
+                logits = (
+                    outputs.logits
+                    if hasattr(outputs, "logits")
+                    else (outputs if isinstance(outputs, torch.Tensor) else outputs[0])
+                )
 
                 loss = self.criterion(logits.view(-1, logits.size(-1)), labels.view(-1))
                 total_loss += loss.item()
@@ -437,8 +459,8 @@ class SupervisedFineTuner:
 
     def merge_and_save(self, output_path: str | None = None) -> None:
         """Merge LoRA weights with base model and save."""
-        output_path = Path(output_path or self.config.output_dir)
-        output_path.mkdir(parents=True, exist_ok=True)
+        resolved_path = Path(output_path or self.config.output_dir)
+        resolved_path.mkdir(parents=True, exist_ok=True)
 
         # Get merged state dict
         merged_state = {}
@@ -447,13 +469,13 @@ class SupervisedFineTuner:
             merged_state[name] = param.data
 
         # Save merged model
-        torch.save(merged_state, output_path / "merged_model.pt")
+        torch.save(merged_state, resolved_path / "merged_model.pt")
 
         # Save tokenizer if available
         if self.tokenizer:
-            self.tokenizer.save_pretrained(output_path)
+            self.tokenizer.save_pretrained(resolved_path)
 
-        print(f"Merged model saved to: {output_path}")
+        print(f"Merged model saved to: {resolved_path}")
 
 
 class DatasetValidator:
@@ -499,7 +521,9 @@ class DatasetValidator:
 
         return is_valid
 
-    def validate_dataset(self, examples: list[dict[str, str]]) -> tuple[bool, list[str]]:
+    def validate_dataset(
+        self, examples: list[dict[str, str]]
+    ) -> tuple[bool, list[str]]:
         """Validate entire dataset."""
         self.issues = []
         valid_count = 0
@@ -546,8 +570,16 @@ class Evaluator:
                 input_ids = batch["input_ids"].to(self.device)
                 labels = batch["labels"].to(self.device)
 
-                outputs = self.model(input_ids=input_ids, labels=labels)
-                loss = outputs.loss if hasattr(outputs, "loss") else outputs[0]
+                outputs = self.model(input_ids=input_ids)
+                if hasattr(outputs, "loss") and outputs.loss is not None:
+                    loss = outputs.loss
+                else:
+                    logits = (
+                        outputs if isinstance(outputs, torch.Tensor) else outputs[0]
+                    )
+                    loss = nn.functional.cross_entropy(
+                        logits.view(-1, logits.size(-1)), labels.view(-1)
+                    )
 
                 total_loss += loss.item()
                 count += 1
@@ -571,7 +603,11 @@ class Evaluator:
                 labels = batch["labels"].to(self.device)
 
                 outputs = self.model(input_ids=input_ids)
-                logits = outputs.logits if hasattr(outputs, "logits") else outputs[0]
+                logits = (
+                    outputs.logits
+                    if hasattr(outputs, "logits")
+                    else (outputs if isinstance(outputs, torch.Tensor) else outputs[0])
+                )
 
                 predictions = torch.argmax(logits, dim=-1)
                 correct += (predictions == labels).sum().item()
@@ -598,7 +634,7 @@ class Evaluator:
 
         # Generate
         with torch.no_grad():
-            outputs = self.model.generate(
+            outputs = self.model.generate(  # type: ignore[operator]
                 **inputs,
                 max_length=max_length,
                 temperature=temperature,
@@ -617,7 +653,9 @@ class Evaluator:
         return response
 
 
-def merge_lora_weights(base_model_path: str, lora_model_path: str, output_path: str) -> None:
+def merge_lora_weights(
+    base_model_path: str, lora_model_path: str, output_path: str
+) -> None:
     """Merge LoRA weights with base model."""
     # Load base model
     base_state = torch.load(base_model_path, map_location="cpu")

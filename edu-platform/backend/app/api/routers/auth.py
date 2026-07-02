@@ -1,8 +1,7 @@
 from uuid import uuid4
 
 from app.api.rbac import ALLOWED_REGISTRATION_ROLES
-from app.core.security import (create_access_token, hash_password,
-                               verify_password)
+from app.core.security import create_access_token, hash_password, verify_password
 from app.db.models.user import User
 from app.db.session import get_db
 from app.schemas.token import Token
