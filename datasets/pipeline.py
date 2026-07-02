@@ -3,19 +3,21 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import pandas as pd
 
-from preprocessing.text_processor import TextProcessor
 from datasets.chunker import DocumentChunker
+from preprocessing.text_processor import TextProcessor
 
 
 @dataclass
 class DatasetConfig:
     """Configuration for dataset processing."""
+
     chunk_size: int = 512
     chunk_overlap: int = 32
     min_chunk_length: int = 50
@@ -28,6 +30,7 @@ class DatasetConfig:
 @dataclass
 class DatasetStats:
     """Statistics about a dataset."""
+
     total_documents: int = 0
     total_chunks: int = 0
     total_tokens: int = 0
@@ -50,7 +53,7 @@ class BaseLoader:
         """Load document from path."""
         raise NotImplementedError
 
-    def load_many(self, paths: list[str | Path]) -> list[str]:
+    def load_many(self, paths: Sequence[str | Path]) -> list[str]:
         """Load multiple documents."""
         return [self.load(path) for path in paths]
 
@@ -92,6 +95,7 @@ class HTMLLoader(BaseLoader):
         """Load HTML file and extract text."""
         try:
             from bs4 import BeautifulSoup
+
             html = Path(path).read_text(encoding="utf-8")
             soup = BeautifulSoup(html, "html.parser")
             # Remove script and style elements
@@ -116,16 +120,16 @@ class CSVLoader(BaseLoader):
     def load(self, path: str | Path) -> str:
         """Load CSV and concatenate text columns."""
         df = pd.read_csv(path)
-        
+
         if self.text_columns is None:
             # Use all string columns
             self.text_columns = df.select_dtypes(include=["object"]).columns.tolist()
-        
+
         texts = []
         for col in self.text_columns:
             if col in df.columns:
                 texts.extend(df[col].dropna().astype(str).tolist())
-        
+
         return self.processor.clean(" ".join(texts))
 
 
@@ -139,11 +143,11 @@ class JSONLoader(BaseLoader):
     def load(self, path: str | Path) -> str:
         """Load JSON and extract text fields."""
         data = json.loads(Path(path).read_text(encoding="utf-8"))
-        
+
         texts = []
         if isinstance(data, dict):
             data = [data]
-        
+
         for item in data:
             if isinstance(item, dict):
                 if self.text_key in item:
@@ -153,7 +157,7 @@ class JSONLoader(BaseLoader):
                     texts.extend([str(v) for v in item.values() if isinstance(v, str)])
             elif isinstance(item, str):
                 texts.append(item)
-        
+
         return self.processor.clean(" ".join(texts))
 
 
@@ -164,6 +168,7 @@ class PDFLoader(BaseLoader):
         """Load PDF and extract text."""
         try:
             import PyPDF2
+
             with open(path, "rb") as f:
                 reader = PyPDF2.PdfReader(f)
                 texts = []
@@ -173,6 +178,7 @@ class PDFLoader(BaseLoader):
         except ImportError:
             try:
                 import pdfplumber
+
                 with pdfplumber.open(path) as pdf:
                     texts = []
                     for page in pdf.pages:
@@ -189,7 +195,8 @@ class DOCXLoader(BaseLoader):
         """Load DOCX and extract text."""
         try:
             from docx import Document
-            doc = Document(path)
+
+            doc = Document(str(path))
             texts = [paragraph.text for paragraph in doc.paragraphs]
             return self.processor.clean(" ".join(texts))
         except ImportError:
@@ -207,6 +214,7 @@ class WikipediaLoader(BaseLoader):
         """Load Wikipedia dump (XML format)."""
         try:
             import mwxml
+
             with open(path, "r", encoding="utf-8") as f:
                 dump = mwxml.Dump.from_file(f)
                 texts = []
@@ -223,6 +231,7 @@ class WikipediaLoader(BaseLoader):
         """Load Wikipedia article from API."""
         try:
             import requests
+
             url = f"https://{self.language}.wikipedia.org/w/api.php"
             params = {
                 "action": "query",
@@ -251,6 +260,7 @@ class OCRPipeline:
         try:
             import pytesseract
             from PIL import Image
+
             image = Image.open(image_path)
             text = pytesseract.image_to_string(image, lang=self.language)
             return text
@@ -262,11 +272,14 @@ class OCRPipeline:
         try:
             import pdf2image
             import pytesseract
+
             images = pdf2image.convert_from_path(pdf_path)
             texts = [pytesseract.image_to_string(img) for img in images]
             return " ".join(texts)
         except ImportError:
-            raise ImportError("Install pdf2image, pytesseract, and Pillow for OCR support")
+            raise ImportError(
+                "Install pdf2image, pytesseract, and Pillow for OCR support"
+            )
 
 
 class TextCleaner:
@@ -288,7 +301,9 @@ class TextCleaner:
 
     def remove_phone_numbers(self, text: str) -> str:
         """Remove phone numbers from text."""
-        text = re.sub(r"\(?\+?[0-9]{1,3}\)?[-.\s]?[0-9]{1,4}[-.\s]?[0-9]{1,4}", "", text)
+        text = re.sub(
+            r"\(?\+?[0-9]{1,3}\)?[-.\s]?[0-9]{1,4}[-.\s]?[0-9]{1,4}", "", text
+        )
         return text
 
     def remove_special_chars(self, text: str) -> str:
@@ -336,22 +351,23 @@ class Deduplicator:
         """Remove near-duplicate documents using MinHash."""
         try:
             from datasketch import MinHash, MinHashLSH
+
             lsh = MinHashLSH(threshold=self.similarity_threshold, num_perm=128)
             unique = []
-            
+
             for i, doc in enumerate(documents):
                 words = doc.split()
                 if not words:
                     continue
-                
+
                 m = MinHash(num_perm=128)
                 for word in words:
                     m.update(word.encode("utf-8"))
-                
+
                 if not lsh.query(m):
                     lsh.insert(i, m)
                     unique.append(doc)
-            
+
             return unique
         except ImportError:
             # Fallback to exact deduplication
@@ -374,27 +390,27 @@ class DatasetStatistics:
         """Compute dataset statistics."""
         self.stats.total_documents = len(documents)
         self.stats.total_characters = sum(len(doc) for doc in documents)
-        
+
         chunk_lengths = []
         total_tokens = 0
-        
+
         for doc in documents:
             chunk_lengths.append(len(doc))
             if tokenizer:
                 tokens = tokenizer.encode(doc)
                 total_tokens += len(tokens)
-        
+
         if chunk_lengths:
             self.stats.total_chunks = len(documents)
             self.stats.avg_chunk_length = sum(chunk_lengths) / len(chunk_lengths)
             self.stats.min_chunk_length = min(chunk_lengths)
             self.stats.max_chunk_length = max(chunk_lengths)
-        
+
         self.stats.total_tokens = total_tokens
-        
+
         if tokenizer:
             self.stats.vocabulary_size = len(tokenizer.vocab)
-        
+
         return self.stats
 
     def get_summary(self) -> dict[str, Any]:
@@ -422,8 +438,8 @@ class VocabularyBuilder:
 
     def build(self, documents: list[str], tokenizer=None) -> dict[str, int]:
         """Build vocabulary from documents."""
-        word_freq = {}
-        
+        word_freq: dict[str | int, int] = {}
+
         for doc in documents:
             if tokenizer:
                 tokens = tokenizer.encode(doc)
@@ -434,19 +450,19 @@ class VocabularyBuilder:
                 for word in words:
                     word = word.lower()
                     word_freq[word] = word_freq.get(word, 0) + 1
-        
+
         # Filter by frequency
         filtered = {k: v for k, v in word_freq.items() if v >= self.min_frequency}
-        
+
         # Sort by frequency
         sorted_vocab = sorted(filtered.items(), key=lambda x: x[1], reverse=True)
-        
+
         # Limit size
         sorted_vocab = sorted_vocab[: self.max_vocab_size]
-        
+
         # Create vocab dict
         self.vocab = {word: idx for idx, (word, _) in enumerate(sorted_vocab)}
-        
+
         return self.vocab
 
     def save(self, path: str | Path) -> None:
@@ -475,27 +491,27 @@ class DatasetValidator:
     def validate_dataset(self, documents: list[str]) -> tuple[bool, list[str]]:
         """Validate entire dataset."""
         self.issues = []
-        
+
         if not documents:
             self.issues.append("Dataset is empty")
             return False, self.issues
-        
+
         # Check for empty documents
         empty_count = sum(1 for doc in documents if not doc.strip())
         if empty_count > 0:
             self.issues.append(f"Found {empty_count} empty documents")
-        
+
         # Check for very short documents
         short_count = sum(1 for doc in documents if len(doc.strip()) < 50)
         if short_count > len(documents) * 0.1:
             self.issues.append(f"Found {short_count} very short documents (>10%)")
-        
+
         # Check for duplicates
         unique = set(documents)
         duplicate_count = len(documents) - len(unique)
         if duplicate_count > 0:
             self.issues.append(f"Found {duplicate_count} duplicate documents")
-        
+
         return len(self.issues) == 0, self.issues
 
     def get_report(self) -> str:
@@ -513,7 +529,9 @@ class DatasetPipeline:
         self.loader: BaseLoader | None = None
         self.cleaner = TextCleaner()
         self.deduplicator = Deduplicator(self.config.similarity_threshold)
-        self.chunker = DocumentChunker(self.config.chunk_size, self.config.chunk_overlap)
+        self.chunker = DocumentChunker(
+            self.config.chunk_size, self.config.chunk_overlap
+        )
         self.statistics = DatasetStatistics()
         self.vocab_builder = VocabularyBuilder()
         self.validator = DatasetValidator()
@@ -522,41 +540,46 @@ class DatasetPipeline:
         """Set document loader."""
         self.loader = loader
 
-    def process(self, paths: list[str | Path], tokenizer=None) -> tuple[list[str], DatasetStats]:
+    def process(
+        self, paths: list[str | Path], tokenizer=None
+    ) -> tuple[list[str], DatasetStats]:
         """Process documents through the pipeline."""
         if self.loader is None:
             raise ValueError("Loader not set")
-        
+
         # Load documents
         documents = self.loader.load_many(paths)
-        
+
         # Clean documents
         documents = [self.cleaner.clean(doc) for doc in documents]
-        
+
         # Deduplicate
         if self.config.deduplicate:
             documents = self.deduplicator.deduplicate(documents)
-        
+
         # Chunk documents
         chunks = []
         for doc in documents:
             doc_chunks = self.chunker.chunk(doc)
             chunks.extend(doc_chunks)
-        
+
         # Filter chunks by length
         chunks = [
-            chunk for chunk in chunks
-            if self.config.min_chunk_length <= len(chunk) <= self.config.max_chunk_length
+            chunk
+            for chunk in chunks
+            if self.config.min_chunk_length
+            <= len(chunk)
+            <= self.config.max_chunk_length
         ]
-        
+
         # Compute statistics
         stats = self.statistics.compute(chunks, tokenizer)
-        
+
         # Validate
         is_valid, issues = self.validator.validate_dataset(chunks)
         if not is_valid:
             print(f"Dataset validation issues:\n{self.validator.get_report()}")
-        
+
         return chunks, stats
 
     def build_vocabulary(self, documents: list[str]) -> dict[str, int]:

@@ -26,7 +26,9 @@ def get_conversation_engine() -> ConversationEngine:
     """Get or create conversation engine instance."""
     global _conversation_engine
     if _conversation_engine is None:
-        raise HTTPException(status_code=500, detail="Conversation engine not initialized")
+        raise HTTPException(
+            status_code=500, detail="Conversation engine not initialized"
+        )
     return _conversation_engine
 
 
@@ -39,6 +41,7 @@ def initialize_engine(model, tokenizer, config=None) -> None:
 
 class GenerateRequest(BaseModel):
     """Request model for text generation."""
+
     prompt: str = Field(..., description="Input prompt for generation")
     max_new_tokens: int = Field(100, description="Maximum tokens to generate")
     temperature: float = Field(1.0, description="Sampling temperature", ge=0.0, le=2.0)
@@ -52,12 +55,14 @@ class GenerateRequest(BaseModel):
 
 class GenerateResponse(BaseModel):
     """Response model for text generation."""
+
     text: str = Field(..., description="Generated text")
     tokens_generated: int = Field(..., description="Number of tokens generated")
 
 
 class StreamRequest(BaseModel):
     """Request model for streaming generation."""
+
     prompt: str = Field(..., description="Input prompt for generation")
     max_new_tokens: int = Field(100, description="Maximum tokens to generate")
     temperature: float = Field(1.0, description="Sampling temperature", ge=0.0, le=2.0)
@@ -69,6 +74,7 @@ class StreamRequest(BaseModel):
 
 class BeamSearchRequest(BaseModel):
     """Request model for beam search."""
+
     prompt: str = Field(..., description="Input prompt for generation")
     max_new_tokens: int = Field(100, description="Maximum tokens to generate")
     beam_width: int = Field(4, description="Number of beams", ge=1, le=10)
@@ -78,11 +84,15 @@ class BeamSearchRequest(BaseModel):
 
 class BeamSearchResponse(BaseModel):
     """Response model for beam search."""
-    results: list[tuple[float, str]] = Field(..., description="List of (score, text) tuples")
+
+    results: list[tuple[float, str]] = Field(
+        ..., description="List of (score, text) tuples"
+    )
 
 
 class ChatRequest(BaseModel):
     """Request model for chat."""
+
     message: str = Field(..., description="User message")
     max_new_tokens: int = Field(100, description="Maximum tokens to generate")
     temperature: float = Field(1.0, description="Sampling temperature", ge=0.0, le=2.0)
@@ -93,12 +103,14 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     """Response model for chat."""
+
     response: str = Field(..., description="Assistant's response")
     history_length: int = Field(..., description="Number of turns in history")
 
 
 class StreamChatRequest(BaseModel):
     """Request model for streaming chat."""
+
     message: str = Field(..., description="User message")
     max_new_tokens: int = Field(100, description="Maximum tokens to generate")
     temperature: float = Field(1.0, description="Sampling temperature", ge=0.0, le=2.0)
@@ -109,12 +121,14 @@ class StreamChatRequest(BaseModel):
 
 class MemoryClearResponse(BaseModel):
     """Response model for clearing memory."""
+
     status: str = Field(..., description="Operation status")
     message: str = Field(..., description="Status message")
 
 
 class SystemPromptRequest(BaseModel):
     """Request model for setting system prompt."""
+
     system_prompt: str = Field(..., description="System prompt text")
 
 
@@ -122,7 +136,7 @@ class SystemPromptRequest(BaseModel):
 async def generate_text(request: GenerateRequest) -> GenerateResponse:
     """
     Generate text from a prompt.
-    
+
     Supports:
     - Greedy search (temperature=0)
     - Temperature sampling
@@ -134,7 +148,7 @@ async def generate_text(request: GenerateRequest) -> GenerateResponse:
     """
     try:
         engine = get_engine()
-        
+
         generated_text = engine.generate(
             prompt=request.prompt,
             max_new_tokens=request.max_new_tokens,
@@ -146,9 +160,9 @@ async def generate_text(request: GenerateRequest) -> GenerateResponse:
             max_context_len=request.max_context_len,
             do_sample=request.do_sample,
         )
-        
+
         tokens_generated = len(engine.tokenizer.encode(generated_text))
-        
+
         return GenerateResponse(text=generated_text, tokens_generated=tokens_generated)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -158,12 +172,12 @@ async def generate_text(request: GenerateRequest) -> GenerateResponse:
 async def stream_generate(request: StreamRequest) -> Iterator[str]:
     """
     Stream generated text token by token.
-    
+
     Returns a streaming response with generated text chunks.
     """
     try:
         engine = get_engine()
-        
+
         def generate_stream():
             for chunk in engine.stream_generate(
                 prompt=request.prompt,
@@ -175,7 +189,7 @@ async def stream_generate(request: StreamRequest) -> Iterator[str]:
                 max_context_len=request.max_context_len,
             ):
                 yield chunk
-        
+
         return generate_stream()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -185,12 +199,12 @@ async def stream_generate(request: StreamRequest) -> Iterator[str]:
 async def beam_search(request: BeamSearchRequest) -> BeamSearchResponse:
     """
     Generate text using beam search.
-    
+
     Returns multiple candidates sorted by score.
     """
     try:
         engine = get_engine()
-        
+
         results = engine.beam_search(
             prompt=request.prompt,
             max_new_tokens=request.max_new_tokens,
@@ -198,7 +212,7 @@ async def beam_search(request: BeamSearchRequest) -> BeamSearchResponse:
             stop_tokens=request.stop_tokens,
             max_context_len=request.max_context_len,
         )
-        
+
         return BeamSearchResponse(results=results)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -208,12 +222,12 @@ async def beam_search(request: BeamSearchRequest) -> BeamSearchResponse:
 async def chat(request: ChatRequest) -> ChatResponse:
     """
     Chat with conversation memory.
-    
+
     Maintains conversation history and generates contextual responses.
     """
     try:
         engine = get_conversation_engine()
-        
+
         response = engine.chat(
             user_message=request.message,
             max_new_tokens=request.max_new_tokens,
@@ -222,7 +236,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
             top_p=request.top_p,
             stop_tokens=request.stop_tokens,
         )
-        
+
         return ChatResponse(
             response=response,
             history_length=len(engine.memory),
@@ -238,7 +252,7 @@ async def stream_chat(request: StreamChatRequest) -> Iterator[str]:
     """
     try:
         engine = get_conversation_engine()
-        
+
         def generate_stream():
             for chunk in engine.stream_chat(
                 user_message=request.message,
@@ -249,7 +263,7 @@ async def stream_chat(request: StreamChatRequest) -> Iterator[str]:
                 stop_tokens=request.stop_tokens,
             ):
                 yield chunk
-        
+
         return generate_stream()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -263,7 +277,7 @@ async def clear_memory() -> MemoryClearResponse:
     try:
         engine = get_conversation_engine()
         engine.clear_history()
-        
+
         return MemoryClearResponse(
             status="success",
             message="Conversation history cleared",
@@ -280,7 +294,7 @@ async def set_system_prompt(request: SystemPromptRequest) -> dict[str, str]:
     try:
         engine = get_conversation_engine()
         engine.set_system_prompt(request.system_prompt)
-        
+
         return {"status": "success", "message": "System prompt set"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -293,7 +307,7 @@ async def health_check() -> dict[str, str]:
     """
     global _engine
     status = "ready" if _engine is not None else "not_initialized"
-    
+
     return {
         "status": status,
         "message": "Inference engine is ready" if _engine else "Engine not initialized",

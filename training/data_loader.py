@@ -12,6 +12,7 @@ from torch.utils.data import Dataset, IterableDataset
 @dataclass
 class DatasetConfig:
     """Configuration for dataset loading."""
+
     max_seq_len: int = 256
     stride: int = 128
     min_length: int = 2
@@ -44,10 +45,10 @@ class TextDataset(Dataset):
             tokens = self.tokenizer.encode(text)
             if not tokens:
                 continue
-            
+
             # Add EOS token
             tokens = [self.tokenizer.vocab[self.tokenizer.eos_token]] + tokens
-            
+
             # Create overlapping chunks with stride
             if len(tokens) <= self.max_seq_len:
                 if len(tokens) >= self.min_length:
@@ -110,14 +111,16 @@ class StreamingTextDataset(IterableDataset):
                     tokens = self.tokenizer.encode(text)
                     if not tokens:
                         continue
-                    
+
                     tokens = [self.tokenizer.vocab[self.tokenizer.eos_token]] + tokens
-                    
+
                     if len(tokens) <= self.max_seq_len:
                         if len(tokens) >= self.min_length:
                             yield torch.tensor(tokens, dtype=torch.long)
                     else:
-                        for offset in range(0, len(tokens) - self.max_seq_len + 1, self.stride):
+                        for offset in range(
+                            0, len(tokens) - self.max_seq_len + 1, self.stride
+                        ):
                             chunk = tokens[offset : offset + self.max_seq_len]
                             if len(chunk) >= self.min_length:
                                 yield torch.tensor(chunk, dtype=torch.long)
@@ -148,10 +151,10 @@ class DatasetLoader:
         """Load all text files from a directory."""
         if extensions is None:
             extensions = {".txt", ".md", ".json", ".csv"}
-        
+
         directory = Path(directory)
         texts = []
-        
+
         pattern = "**/*" if recursive else "*"
         for file_path in directory.glob(pattern):
             if file_path.is_file() and file_path.suffix.lower() in extensions:
@@ -159,7 +162,7 @@ class DatasetLoader:
                     texts.append(file_path.read_text(encoding="utf-8"))
                 except Exception as e:
                     print(f"Error reading {file_path}: {e}")
-        
+
         return texts
 
     @staticmethod
@@ -183,7 +186,7 @@ class DatasetLoader:
         """Load texts from a JSON file."""
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        
+
         texts = []
         if isinstance(data, list):
             for item in data:
@@ -193,5 +196,5 @@ class DatasetLoader:
                     texts.append(item[text_key])
         elif isinstance(data, dict) and text_key in data:
             texts.append(data[text_key])
-        
+
         return texts

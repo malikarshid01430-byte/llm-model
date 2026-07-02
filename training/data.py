@@ -26,14 +26,16 @@ class SequencePacker:
         input_ids = padded[:, :-1]
         targets = padded[:, 1:]
         attention_mask = torch.ones_like(input_ids, dtype=torch.bool)
-        return PackedBatch(input_ids=input_ids, targets=targets, attention_mask=attention_mask)
+        return PackedBatch(
+            input_ids=input_ids, targets=targets, attention_mask=attention_mask
+        )
 
 
 class DataCollator:
     def __init__(self, max_seq_len: int) -> None:
         self.max_seq_len = max_seq_len
 
-    def collate(self, batch: List[torch.Tensor]) -> dict[str, torch.Tensor]:
+    def collate(self, batch: List[torch.Tensor]) -> dict[str, torch.Tensor | None]:
         packer = SequencePacker(self.max_seq_len)
         packed = packer.pack(batch)
         return {
@@ -44,7 +46,9 @@ class DataCollator:
 
 
 class TextDataset(Dataset):
-    def __init__(self, texts: list[str], tokenizer: Any, max_seq_len: int = 256) -> None:
+    def __init__(
+        self, texts: list[str], tokenizer: Any, max_seq_len: int = 256
+    ) -> None:
         self.texts = texts
         self.tokenizer = tokenizer
         self.max_seq_len = max_seq_len

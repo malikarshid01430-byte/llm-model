@@ -2,8 +2,7 @@ from app.core.config import settings
 from app.db.base import Base
 from app.db.models.role import Role
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import (AsyncSession, async_sessionmaker,
-                                    create_async_engine)
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 connect_args = (
     {"check_same_thread": False} if settings.postgres_url.startswith("sqlite") else {}

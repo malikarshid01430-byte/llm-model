@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import numpy as np
 
@@ -15,6 +14,7 @@ from rag.retriever import Retriever
 @dataclass
 class RAGConfig:
     """Configuration for RAG system."""
+
     chunk_size: int = 512
     chunk_overlap: int = 32
     embedding_dim: int = 384
@@ -28,6 +28,7 @@ class RAGConfig:
 @dataclass
 class Document:
     """Document with metadata."""
+
     id: str
     text: str
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -37,6 +38,7 @@ class Document:
 @dataclass
 class SearchResult:
     """Search result with relevance score."""
+
     document: Document
     score: float
     rank: int
@@ -54,6 +56,7 @@ class EmbeddingGenerator:
         if self.model is None:
             try:
                 from sentence_transformers import SentenceTransformer
+
                 self.model = SentenceTransformer(self.model_name)
             except ImportError:
                 raise ImportError("Install sentence-transformers for embedding support")
@@ -61,13 +64,17 @@ class EmbeddingGenerator:
     def embed(self, text: str) -> np.ndarray:
         """Generate embedding for text."""
         self._load_model()
+        assert self.model is not None
         embedding = self.model.encode(text, convert_to_numpy=True)
         return embedding
 
     def embed_batch(self, texts: list[str]) -> np.ndarray:
         """Generate embeddings for multiple texts."""
         self._load_model()
-        embeddings = self.model.encode(texts, convert_to_numpy=True, show_progress_bar=True)
+        assert self.model is not None
+        embeddings = self.model.encode(
+            texts, convert_to_numpy=True, show_progress_bar=True
+        )
         return embeddings
 
 
@@ -83,6 +90,7 @@ class FAISSVectorStore:
         """Initialize FAISS index."""
         try:
             import faiss
+
             self.index = faiss.IndexFlatL2(self.embedding_dim)
         except ImportError:
             raise ImportError("Install faiss-cpu or faiss-gpu for FAISS support")
@@ -92,12 +100,16 @@ class FAISSVectorStore:
         if self.index is None:
             self._init_index()
 
-        embeddings = np.array([doc.embedding for doc in documents if doc.embedding is not None])
-        if len(embeddings) > 0:
+        embeddings = np.array(
+            [doc.embedding for doc in documents if doc.embedding is not None]
+        )
+        if len(embeddings) > 0 and self.index is not None:
             self.index.add(embeddings)
         self.documents.extend(documents)
 
-    def search(self, query_embedding: np.ndarray, top_k: int = 5) -> list[tuple[int, float]]:
+    def search(
+        self, query_embedding: np.ndarray, top_k: int = 5
+    ) -> list[tuple[int, float]]:
         """Search for similar documents."""
         if self.index is None:
             return []
@@ -115,6 +127,7 @@ class FAISSVectorStore:
         """Save vector store to disk."""
         try:
             import faiss
+
             path = Path(path)
             path.mkdir(parents=True, exist_ok=True)
 
@@ -125,12 +138,18 @@ class FAISSVectorStore:
             # Save documents
             docs_data = []
             for doc in self.documents:
-                docs_data.append({
-                    "id": doc.id,
-                    "text": doc.text,
-                    "metadata": doc.metadata,
-                    "embedding": doc.embedding.tolist() if doc.embedding is not None else None,
-                })
+                docs_data.append(
+                    {
+                        "id": doc.id,
+                        "text": doc.text,
+                        "metadata": doc.metadata,
+                        "embedding": (
+                            doc.embedding.tolist()
+                            if doc.embedding is not None
+                            else None
+                        ),
+                    }
+                )
             with open(path / "documents.json", "w") as f:
                 json.dump(docs_data, f)
         except ImportError:
@@ -140,6 +159,7 @@ class FAISSVectorStore:
         """Load vector store from disk."""
         try:
             import faiss
+
             path = Path(path)
 
             # Load FAISS index
@@ -157,7 +177,11 @@ class FAISSVectorStore:
                         id=d["id"],
                         text=d["text"],
                         metadata=d["metadata"],
-                        embedding=np.array(d["embedding"]) if d["embedding"] is not None else None,
+                        embedding=(
+                            np.array(d["embedding"])
+                            if d["embedding"] is not None
+                            else None
+                        ),
                     )
                     for d in docs_data
                 ]
@@ -168,7 +192,9 @@ class FAISSVectorStore:
 class ChromaVectorStore:
     """ChromaDB-based vector store."""
 
-    def __init__(self, collection_name: str = "documents", persist_directory: str | None = None) -> None:
+    def __init__(
+        self, collection_name: str = "documents", persist_directory: str | None = None
+    ) -> None:
         self.collection_name = collection_name
         self.persist_directory = persist_directory
         self.client = None
@@ -179,11 +205,14 @@ class ChromaVectorStore:
         if self.client is None:
             try:
                 import chromadb
+
                 if self.persist_directory:
                     self.client = chromadb.PersistentClient(path=self.persist_directory)
                 else:
                     self.client = chromadb.EphemeralClient()
-                self.collection = self.client.get_or_create_collection(self.collection_name)
+                self.collection = self.client.get_or_create_collection(
+                    self.collection_name
+                )
             except ImportError:
                 raise ImportError("Install chromadb for ChromaDB support")
 
@@ -193,10 +222,12 @@ class ChromaVectorStore:
 
         ids = [doc.id for doc in documents]
         texts = [doc.text for doc in documents]
-        embeddings = [doc.embedding.tolist() for doc in documents if doc.embedding is not None]
+        embeddings = [
+            doc.embedding.tolist() for doc in documents if doc.embedding is not None
+        ]
         metadatas = [doc.metadata for doc in documents]
 
-        if len(embeddings) > 0:
+        if len(embeddings) > 0 and self.collection is not None:
             self.collection.add(
                 ids=ids,
                 documents=texts,
@@ -204,10 +235,13 @@ class ChromaVectorStore:
                 metadatas=metadatas,
             )
 
-    def search(self, query_embedding: np.ndarray, top_k: int = 5) -> list[tuple[int, float]]:
+    def search(
+        self, query_embedding: np.ndarray, top_k: int = 5
+    ) -> list[tuple[int, float]]:
         """Search for similar documents."""
         self._init_client()
 
+        assert self.collection is not None
         results = self.collection.query(
             query_embeddings=[query_embedding.tolist()],
             n_results=top_k,
@@ -215,7 +249,9 @@ class ChromaVectorStore:
 
         output = []
         if results["ids"] and len(results["ids"]) > 0:
-            for i, (doc_id, distance) in enumerate(zip(results["ids"][0], results["distances"][0])):
+            for i, (doc_id, distance) in enumerate(
+                zip(results["ids"][0], results["distances"][0])
+            ):
                 output.append((i, float(distance)))
         return output
 
@@ -223,6 +259,7 @@ class ChromaVectorStore:
         """Get documents by indices."""
         self._init_client()
         # ChromaDB returns documents in order
+        assert self.collection is not None
         results = self.collection.get()
         documents = []
         for idx in indices:
@@ -280,21 +317,21 @@ class HybridRetriever:
                 seen_ids.add(idx)
                 combined.append((idx, score, "semantic"))
 
-        for doc in keyword_results:
-            doc_id = hash(doc)
+        for kw_doc in keyword_results:
+            doc_id = hash(kw_doc)
             if doc_id not in seen_ids:
                 seen_ids.add(doc_id)
                 combined.append((doc_id, 0.5, "keyword"))
 
         # Sort by score and return top_k
         combined.sort(key=lambda x: x[1], reverse=True)
-        results = []
+        results: list[SearchResult] = []
         for rank, (idx, score, source) in enumerate(combined[:top_k]):
             if source == "semantic":
-                doc = self.vector_store.documents[idx]
+                result_doc = self.vector_store.documents[idx]
             else:
-                doc = Document(id=str(idx), text=keyword_results[0])
-            results.append(SearchResult(document=doc, score=score, rank=rank))
+                result_doc = Document(id=str(idx), text=keyword_results[0])
+            results.append(SearchResult(document=result_doc, score=score, rank=rank))
 
         return results
 
@@ -314,7 +351,9 @@ class ContextRanker:
             doc_terms = set(result.document.text.lower().split())
             overlap = len(query_terms.intersection(doc_terms))
             length_score = min(len(result.document.text) / 100, 1.0)
-            combined_score = (overlap * 0.3) + (result.score * 0.5) + (length_score * 0.2)
+            combined_score = (
+                (overlap * 0.3) + (result.score * 0.5) + (length_score * 0.2)
+            )
             scored_results.append((combined_score, result))
 
         scored_results.sort(key=lambda x: x[0], reverse=True)
@@ -415,7 +454,9 @@ class LongTermMemory:
         entry = {
             "query": query,
             "response": response,
-            "contexts": [{"text": ctx.document.text, "score": ctx.score} for ctx in contexts],
+            "contexts": [
+                {"text": ctx.document.text, "score": ctx.score} for ctx in contexts
+            ],
             "timestamp": hash(f"{query}{response}"),
         }
         self.memory.append(entry)
@@ -448,7 +489,9 @@ class RAGSystem:
         self.config = config or RAGConfig()
         self.embedding_generator = EmbeddingGenerator()
         self.vector_store = FAISSVectorStore(embedding_dim=self.config.embedding_dim)
-        self.chunker = DocumentChunker(self.config.chunk_size, self.config.chunk_overlap)
+        self.chunker = DocumentChunker(
+            self.config.chunk_size, self.config.chunk_overlap
+        )
         self.ranker = ContextRanker()
         self.prompt_builder = PromptBuilder(self.config.max_context_length)
         self.citation_manager = SourceCitation()
@@ -456,25 +499,27 @@ class RAGSystem:
         self.hybrid_retriever = None
 
         if self.config.use_hybrid_search:
-            self.hybrid_retriever = HybridRetriever(self.vector_store, self.embedding_generator)
+            self.hybrid_retriever = HybridRetriever(
+                self.vector_store, self.embedding_generator
+            )
 
     def index_documents(self, documents: list[str]) -> None:
         """Index documents for retrieval."""
         # Chunk documents
-        chunks = []
-        for doc in documents:
-            chunks.extend(self.chunker.chunk(doc))
+        chunks: list[str] = []
+        for raw_doc in documents:
+            chunks.extend(self.chunker.chunk(raw_doc))
 
         # Generate embeddings
-        doc_objects = []
+        doc_objects: list[Document] = []
         for i, chunk in enumerate(chunks):
             embedding = self.embedding_generator.embed(chunk)
-            doc = Document(
+            doc_obj = Document(
                 id=str(i),
                 text=chunk,
                 embedding=embedding,
             )
-            doc_objects.append(doc)
+            doc_objects.append(doc_obj)
 
         # Add to vector store
         self.vector_store.add_documents(doc_objects)
@@ -509,14 +554,18 @@ class RAGSystem:
 
         return results
 
-    def generate_prompt(self, query: str, contexts: list[SearchResult] | None = None) -> str:
+    def generate_prompt(
+        self, query: str, contexts: list[SearchResult] | None = None
+    ) -> str:
         """Generate prompt with context."""
         if contexts is None:
             contexts = self.retrieve(query)
 
         return self.prompt_builder.build_with_citations(query, contexts)
 
-    def query(self, query: str, top_k: int | None = None) -> tuple[str, list[SearchResult]]:
+    def query(
+        self, query: str, top_k: int | None = None
+    ) -> tuple[str, list[SearchResult]]:
         """Query the RAG system."""
         # Retrieve contexts
         contexts = self.retrieve(query, top_k=top_k)
@@ -537,6 +586,7 @@ class RAGSystem:
 
         # Save config
         import dataclasses
+
         config_dict = dataclasses.asdict(self.config)
         with open(path / "config.json", "w") as f:
             json.dump(config_dict, f)

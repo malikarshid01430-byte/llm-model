@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -10,18 +9,14 @@ from datasets.pipeline import (
     CSVLoader,
     DatasetConfig,
     DatasetPipeline,
-    DatasetStatistics,
     DatasetValidator,
     Deduplicator,
-    DOCXLoader,
     HTMLLoader,
     JSONLoader,
     MarkdownLoader,
-    PDFLoader,
     TextCleaner,
     TXTLoader,
     VocabularyBuilder,
-    WikipediaLoader,
 )
 
 
@@ -33,7 +28,7 @@ class TestLoaders:
         loader = TXTLoader()
         test_file = tmp_path / "test.txt"
         test_file.write_text("Hello world\nThis is a test.")
-        
+
         text = loader.load(test_file)
         assert "Hello world" in text
         assert "This is a test" in text
@@ -42,8 +37,10 @@ class TestLoaders:
         """Test Markdown loader."""
         loader = MarkdownLoader()
         test_file = tmp_path / "test.md"
-        test_file.write_text("# Header\n\nSome **bold** text\n\n[Link](http://example.com)")
-        
+        test_file.write_text(
+            "# Header\n\nSome **bold** text\n\n[Link](http://example.com)"
+        )
+
         text = loader.load(test_file)
         assert "Header" in text
         assert "bold" in text
@@ -55,7 +52,7 @@ class TestLoaders:
         loader = HTMLLoader()
         test_file = tmp_path / "test.html"
         test_file.write_text("<html><body><h1>Title</h1><p>Content</p></body></html>")
-        
+
         text = loader.load(test_file)
         assert "Title" in text
         assert "Content" in text
@@ -65,8 +62,10 @@ class TestLoaders:
         """Test JSON loader."""
         loader = JSONLoader(text_key="content")
         test_file = tmp_path / "test.json"
-        test_file.write_text(json.dumps([{"content": "First text"}, {"content": "Second text"}]))
-        
+        test_file.write_text(
+            json.dumps([{"content": "First text"}, {"content": "Second text"}])
+        )
+
         text = loader.load(test_file)
         assert "First text" in text
         assert "Second text" in text
@@ -76,7 +75,7 @@ class TestLoaders:
         loader = CSVLoader(text_columns=["text"])
         test_file = tmp_path / "test.csv"
         test_file.write_text("id,text\n1,Hello world\n2,Test text")
-        
+
         text = loader.load(test_file)
         assert "Hello world" in text
         assert "Test text" in text
@@ -89,7 +88,7 @@ class TestLoaders:
             f = tmp_path / f"test_{i}.txt"
             f.write_text(f"Text {i}")
             files.append(f)
-        
+
         texts = loader.load_many(files)
         assert len(texts) == 3
         assert all(f"Text {i}" in texts[i] for i in range(3))
@@ -137,7 +136,7 @@ class TestDeduplicator:
         """Test exact duplicate removal."""
         dedup = Deduplicator()
         documents = ["Hello world", "Test text", "Hello world", "Another text"]
-        
+
         unique = dedup.deduplicate_exact(documents)
         assert len(unique) == 3
         assert "Hello world" in unique
@@ -147,7 +146,7 @@ class TestDeduplicator:
         """Test fuzzy duplicate removal."""
         dedup = Deduplicator(similarity_threshold=0.9)
         documents = ["Hello world", "Hello world!", "Test text", "Test text."]
-        
+
         unique = dedup.deduplicate_fuzzy(documents)
         # Should work (exact deduplication fallback if datasketch not installed)
         assert len(unique) <= 4
@@ -159,9 +158,10 @@ class TestDatasetStatistics:
     def test_compute_statistics(self) -> None:
         """Test computing statistics."""
         from datasets.pipeline import DatasetStatistics as DS
+
         stats = DS()
         documents = ["Hello world", "Test text", "Another document"]
-        
+
         result = stats.compute(documents)
         assert result.total_documents == 3
         assert result.total_characters > 0
@@ -170,10 +170,11 @@ class TestDatasetStatistics:
     def test_get_summary(self) -> None:
         """Test getting summary."""
         from datasets.pipeline import DatasetStatistics as DS
+
         stats = DS()
         documents = ["Hello world", "Test text"]
         stats.compute(documents)
-        
+
         summary = stats.get_summary()
         assert "total_documents" in summary
         assert "total_characters" in summary
@@ -187,7 +188,7 @@ class TestVocabularyBuilder:
         """Test building vocabulary."""
         builder = VocabularyBuilder(min_frequency=1)
         documents = ["hello world test", "hello test", "world test"]
-        
+
         vocab = builder.build(documents)
         assert len(vocab) > 0
         assert "hello" in vocab
@@ -198,15 +199,15 @@ class TestVocabularyBuilder:
         builder = VocabularyBuilder()
         documents = ["hello world", "test text"]
         builder.build(documents)
-        
+
         # Save
         vocab_file = tmp_path / "vocab.json"
         builder.save(vocab_file)
-        
+
         # Load
         builder2 = VocabularyBuilder()
         loaded_vocab = builder2.load(vocab_file)
-        
+
         assert loaded_vocab == builder.vocab
 
 
@@ -219,9 +220,9 @@ class TestDatasetValidator:
         documents = [
             "Hello world this is a longer document with enough characters to pass validation",
             "Test text with more content here to make it valid and pass the validation checks",
-            "Another document with enough characters to pass validation and be considered valid"
+            "Another document with enough characters to pass validation and be considered valid",
         ]
-        
+
         is_valid, issues = validator.validate_dataset(documents)
         if not is_valid:
             print(f"Validation issues: {issues}")
@@ -230,7 +231,7 @@ class TestDatasetValidator:
     def test_validate_empty_dataset(self) -> None:
         """Test validating empty dataset."""
         validator = DatasetValidator()
-        
+
         is_valid, issues = validator.validate_dataset([])
         assert not is_valid
         assert "empty" in " ".join(issues).lower()
@@ -238,8 +239,10 @@ class TestDatasetValidator:
     def test_validate_short_documents(self) -> None:
         """Test validating documents with many short ones."""
         validator = DatasetValidator()
-        documents = ["Hi", "Test", "Doc"] * 5 + ["This is a longer document with enough content"]
-        
+        documents = ["Hi", "Test", "Doc"] * 5 + [
+            "This is a longer document with enough content"
+        ]
+
         is_valid, issues = validator.validate_dataset(documents)
         # Should flag too many short documents
         assert not is_valid or len(issues) > 0
@@ -254,12 +257,12 @@ class TestDatasetPipeline:
         for i in range(3):
             f = tmp_path / f"doc_{i}.txt"
             f.write_text(f"This is test document {i}. " * 20)
-        
+
         pipeline = DatasetPipeline()
         pipeline.set_loader(TXTLoader())
-        
+
         chunks, stats = pipeline.process(list(tmp_path.glob("*.txt")))
-        
+
         assert len(chunks) > 0
         assert stats.total_documents == 3
         assert stats.total_characters > 0
@@ -270,12 +273,12 @@ class TestDatasetPipeline:
         for i in range(3):
             f = tmp_path / f"doc_{i}.txt"
             f.write_text("This is the same document. " * 10)
-        
+
         pipeline = DatasetPipeline(config=DatasetConfig(deduplicate=True))
         pipeline.set_loader(TXTLoader())
-        
+
         chunks, stats = pipeline.process(list(tmp_path.glob("*.txt")))
-        
+
         # Should deduplicate
         assert stats.duplicate_count >= 0
 
@@ -283,7 +286,7 @@ class TestDatasetPipeline:
         """Test pipeline with custom configuration."""
         f = tmp_path / "test.txt"
         f.write_text("This is a test document. " * 100)
-        
+
         config = DatasetConfig(
             chunk_size=50,
             chunk_overlap=10,
@@ -292,9 +295,9 @@ class TestDatasetPipeline:
         )
         pipeline = DatasetPipeline(config=config)
         pipeline.set_loader(TXTLoader())
-        
+
         chunks, stats = pipeline.process([f])
-        
+
         assert len(chunks) > 0
         for chunk in chunks:
             assert 20 <= len(chunk) <= 200
@@ -305,33 +308,42 @@ class TestIntegration:
 
     def test_pipeline_with_tokenizer(self, tmp_path: Path) -> None:
         """Test pipeline integration with tokenizer."""
-        from tokenizer.base import BPETokenizer
-        
+
         # Create test file with longer content
         f = tmp_path / "test.txt"
         f.write_text("This is a test document for tokenizer training. " * 100)
-        
+
         # Create simple tokenizer mock
         class MockTokenizer:
             def __init__(self):
-                self.vocab = {"<pad>": 0, "</s>": 1, "this": 2, "is": 3, "a": 4, 
-                             "test": 5, "document": 6, "for": 7, "tokenizer": 8, "training": 9}
-            
+                self.vocab = {
+                    "<pad>": 0,
+                    "</s>": 1,
+                    "this": 2,
+                    "is": 3,
+                    "a": 4,
+                    "test": 5,
+                    "document": 6,
+                    "for": 7,
+                    "tokenizer": 8,
+                    "training": 9,
+                }
+
             def encode(self, text):
                 tokens = []
                 for word in text.lower().split():
                     if word in self.vocab:
                         tokens.append(self.vocab[word])
                 return tokens
-        
+
         # Use custom config with smaller min_chunk_length
         config = DatasetConfig(min_chunk_length=10)
         pipeline = DatasetPipeline(config=config)
         pipeline.set_loader(TXTLoader())
-        
+
         tokenizer = MockTokenizer()
         chunks, stats = pipeline.process([f], tokenizer=tokenizer)
-        
+
         assert len(chunks) > 0
         assert stats.vocabulary_size > 0
 
